@@ -1,73 +1,117 @@
-
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
+import 'package:login_firebase/firebase_options.dart';
+import 'package:login_firebase/notification_service.dart';
 
-import 'firebase_options.dart';
-import 'login/login_screen.dart';
-import 'informasi_pengguna/user_info_screen.dart';
-
-// 1. MAIN PROGRAM
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Inisialisasi Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
   runApp(const MyApp());
+
+  await NotificationService.init();
 }
 
-
-// 2. MY APP
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Firebase Authentication',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue,
-        ),
-        useMaterial3: true,
-      ),
-      home: const AuthWrapper(),
+      title: 'Firebase Auth Simple',
+      navigatorKey: navigatorKey,
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const LoginExampleScreen(),
     );
   }
 }
 
-// 3. AUTH WRAPPER
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
+class LoginExampleScreen extends StatefulWidget {
+  const LoginExampleScreen({super.key});
+
+  @override
+  State<LoginExampleScreen> createState() => _LoginExampleScreenState();
+}
+
+class _LoginExampleScreenState extends State<LoginExampleScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _handleLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      final user = credential.user;
+      await NotificationService.showWelcomeNotification(
+        title: 'Login Berhasil',
+        body: 'Selamat datang kembali, ${user?.email ?? 'Pengguna'}!',
+        data: {
+          'kategori': 'login',
+          'uid': user?.uid ?? '-',
+          'email': user?.email ?? '-',
+        },
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Berhasil login')),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Gagal login')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snapshot) {
-
-        // Memeriksa status autentikasi
-        if (snapshot.connectionState ==
-            ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Login Firebase')),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            TextField(
+              controller: _emailController,
+              decoration: const InputDecoration(labelText: 'Email'),
             ),
-          );
-        }
-
-        // Jika pengguna sudah login
-        if (snapshot.hasData) {
-          return UserInfoScreen(user: snapshot.data!);
-        }
-
-        // Jika pengguna belum login
-        return const LoginScreen();
-      },
+            const SizedBox(height: 12),
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Password'),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _isLoading ? null : _handleLogin,
+              child: Text(_isLoading ? 'Memproses...' : 'Login'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
